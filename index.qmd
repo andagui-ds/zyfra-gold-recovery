@@ -1,0 +1,71 @@
+---
+title: "Zyfra: Predicción de Recuperación de Oro"
+subtitle: "Modelo de regresión para optimizar procesos industriales"
+format:
+  html:
+    page-layout: article
+---
+
+## 🎯 El Problema de Negocio
+
+Zyfra necesita optimizar la producción de oro y eliminar parámetros no rentables. El proceso de extracción y purificación es continuo y complejo.
+
+El objetivo es construir un prototipo que prediga la recuperación de oro en dos etapas críticas:
+1. **Recuperación Rougher (Flotación primaria):** `rougher.output.recovery`.
+2. **Recuperación Final (Purificación):** `final.output.recovery`.
+
+La métrica de éxito es el **sMAPE** (Error Medio Absoluto Porcentual Simétrico) ponderado, con un 25% de peso para Rougher y un 75% para Final.
+
+## 📊 Datos y Preprocesamiento
+
+- **Fuga de datos (Data Leakage):** Se identificaron 34 características de salida (`output`) y cálculo (`calculation`) que no estaban en el conjunto de prueba. Se descartaron correctamente, ya que representan datos del "futuro".
+- **Imputación:** Propagación temporal (`ffill`) para rellenar valores nulos, respetando la secuencia del proceso.
+- **Limpieza:** Se eliminaron 2,806 registros anómalos donde la concentración total de metales era cero.
+
+## 🧠 Análisis Exploratorio (EDA)
+
+- Se confirmó que la concentración de Oro (Au) aumenta del ~8% en la materia prima al ~45% en el producto final.
+- Las distribuciones del tamaño de partícula (`feed_size`) son estables entre train y test, garantizando la capacidad de generalización del modelo.
+
+## 🏆 Resultados y Modelado
+
+Se entrenaron dos modelos independientes (uno para la etapa Rougher y otro para la Final) para capturar la dinámica específica de cada fase.
+
+**Modelo Ganador: Random Forest (Validación Cruzada de 5 folds)**
+- **sMAPE Rougher:** 7.34%
+- **sMAPE Final:** 9.77%
+- **sMAPE Total Ponderado (Test): 7.72%** *(Sobrepasando el umbral de calidad establecido).*
+
+## ✅ Recomendación de Negocio
+
+El modelo de Random Forest está listo para ser integrado en el sistema de monitoreo de Zyfra. Permite predecir en tiempo real cómo variaciones en los reactivos o en la alimentación afectarán la recuperación final. Al mantener el error sMAPE por debajo del 8%, la planta puede ajustar los parámetros operativos de manera proactiva, evitando caídas de eficiencia y maximizando el rendimiento del mineral extraído.
+
+## 🛠️ Stack Técnico
+
+::: {.grid}
+::: {.g-col-6 .g-col-md-3}
+**Lenguajes**
+
+Python
+:::
+::: {.g-col-6 .g-col-md-3}
+**Análisis**
+
+Pandas · NumPy · Matplotlib · Seaborn
+:::
+::: {.g-col-6 .g-col-md-3}
+**ML**
+
+Scikit-learn (Random Forest)
+:::
+::: {.g-col-6 .g-col-md-3}
+**Técnicas**
+
+Feature Engineering · Data Leakage Prevention · sMAPE
+:::
+:::
+
+## 🔗 Recursos
+
+- 📓 [Notebook completo](notebooks/analisis-zyfra.ipynb){target="_blank"}
+- 💻 [Repositorio en GitHub](https://github.com/andagui-ds/zyfra-gold-recovery){target="_blank"}
