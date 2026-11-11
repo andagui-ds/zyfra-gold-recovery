@@ -1,3 +1,10 @@
+---
+title: "Zyfra: Optimización del Coeficiente de Recuperación de Oro"
+subtitle: "Modelado Predictivo Industrial y Métrica sMAPE Personalizada"
+description: "Predicción de la eficiencia de extracción de oro en procesos de refinación industrial utilizando algoritmos de regresión evaluados con la métrica sMAPE."
+categories: [Machine Learning, Regresión, Proyectos Industriales, Python]
+---
+
 # ⛏️ Optimización de recuperación de oro con métrica asimétrica (sMAPE)
 
 **Problema de negocio:** Zyfra, empresa de eficiencia para la industria pesada, necesita optimizar el proceso de extracción y purificación de oro. El objetivo es construir un modelo predictivo que estime la recuperación de oro (concentrado rougher y concentrado final) para eliminar parámetros operativos no rentables.
