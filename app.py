@@ -41,82 +41,46 @@ minimos = artefacto["minimos"]
 # Percentil 95% de cada variable para fijar límites realistas
 maximos = artefacto["maximos"]
 
+# --- SELECCIÓN AUTOMÁTICA DE LOS SENSORES MÁS INFLUYENTES DEL MODELO ---
+imp_series = pd.Series(model_final.feature_importances_, index=final_features).sort_values(
+    ascending=False)  # Ordena variables por peso real
+top_sensores = [c for c in imp_series.index if c in minimos and maximos[c]
+                > minimos[c]][:6]  # Toma los 6 sensores con mayor impacto
+
 # --- BARRA LATERAL: CONTROLES OPERATIVOS DE PLANTA ---
 with st.sidebar:  # Agrupa los controles operativos del ingeniero de planta en el panel izquierdo
     # Título de los controles de simulación
     st.header("⚙️ Control Operativo de Planta")
+    # Subtítulo explicativo
+    st.caption("Sensores de mayor impacto real en el modelo:")
 
-    # Ley de Oro (%) en la alimentación inicial
-    col_au = "rougher.input.feed_au"
-    # Flujo de carga mineral (ton/h) hacia flotación
-    col_rate = "rougher.input.feed_rate"
-    # Reactivo colector Xantato en flotación primaria
-    col_xanthate = "rougher.input.floatbank10_xanthate"
-    # Reactivo Sulfato en etapa de limpieza primaria
-    col_sulfate = "primary_cleaner.input.sulfate"
-    # Reactivo Depresor en limpieza primaria
-    col_depressant = "primary_cleaner.input.depressant"
-    # Concentración de Oro que entra a purificación
-    col_p_au = "primary_cleaner.input.feed_au"
-
-    feed_au = st.slider(  # Control deslizante para ajustar la concentración de Oro en materia prima
-        "Oro en Alimentación (feed_au %)",
-        float(minimos[col_au]),
-        float(maximos[col_au]),
-        float(medianas[col_au]),
-        step=0.1,
-    )
-    feed_rate = st.slider(  # Control deslizante para la tasa de flujo de alimentación del mineral
-        "Flujo de Carga (feed_rate)",
-        float(minimos[col_rate]),
-        float(maximos[col_rate]),
-        float(medianas[col_rate]),
-        step=5.0,
-    )
-    xanthate = st.slider(  # Control deslizante para el reactivo Xantato en flotación Rougher
-        "Reactivo Xantato (Rougher)",
-        float(minimos[col_xanthate]),
-        float(maximos[col_xanthate]),
-        float(medianas[col_xanthate]),
-        step=0.1,
-    )
-    p_au = st.slider(  # Control deslizante para la ley de Oro entrando a limpieza primaria
-        "Oro en Limpieza Primaria (primary_au %)",
-        float(minimos[col_p_au]),
-        float(maximos[col_p_au]),
-        float(medianas[col_p_au]),
-        step=0.2,
-    )
-    sulfate = st.slider(  # Control deslizante para la dosificación de Sulfato en purificación
-        "Reactivo Sulfato (Primary Cleaner)",
-        float(minimos[col_sulfate]),
-        float(maximos[col_sulfate]),
-        float(medianas[col_sulfate]),
-        step=2.0,
-    )
-    depressant = st.slider(  # Control deslizante para el reactivo Depresor en purificación
-        "Reactivo Depresor (Primary Cleaner)",
-        float(minimos[col_depressant]),
-        float(maximos[col_depressant]),
-        float(medianas[col_depressant]),
-        step=0.2,
-    )
+    valores_usuario = {}  # Diccionario para almacenar los valores ajustados en los sliders
+    for sensor in top_sensores:  # Genera un slider automático por cada sensor crítico
+        # Formatea el nombre técnico para lectura clara
+        etiqueta = sensor.replace(".", " › ").replace("_", " ").title()
+        # Límite inferior realista (percentil 5%)
+        val_min = float(minimos[sensor])
+        # Límite superior realista (percentil 95%)
+        val_max = float(maximos[sensor])
+        # Valor inicial por defecto (mediana de planta)
+        val_med = float(medianas[sensor])
+        # Calcula incremento suave proporcional al rango
+        paso = round((val_max - val_min) / 50, 3) or 0.01
+        valores_usuario[sensor] = st.slider(  # Renderiza el control deslizante nativo
+            etiqueta,
+            min_value=val_min,
+            max_value=val_max,
+            value=val_med,
+            step=paso,
+        )
 
 # --- INFERENCIA EN TIEMPO REAL ---
-# Toma la operación mediana estable de los 52 sensores como base
+# Parte de la operación mediana estable de todos los sensores
 fila_simulacion = medianas.copy()
-fila_simulacion[col_au] = feed_au  # Asigna el valor del slider de Oro inicial
-# Asigna el valor del slider de flujo de alimentación
-fila_simulacion[col_rate] = feed_rate
-# Asigna el valor del slider de Xantato
-fila_simulacion[col_xanthate] = xanthate
-# Asigna el valor del slider de Oro en limpieza primaria
-fila_simulacion[col_p_au] = p_au
-fila_simulacion[col_sulfate] = sulfate  # Asigna el valor del slider de Sulfato
-# Asigna el valor del slider de Depresor
-fila_simulacion[col_depressant] = depressant
+# Actualiza únicamente los sensores modificados por el usuario
+fila_simulacion.update(valores_usuario)
 
-# Convierte los 52 sensores en un DataFrame de una fila
+# Convierte los sensores en un DataFrame de una fila
 df_input = pd.DataFrame([fila_simulacion])
 pred_rougher = float(model_rougher.predict(df_input[rougher_features])[
                      0])  # Predice recuperación Rougher (%)
@@ -129,6 +93,9 @@ base_rougher = float(model_rougher.predict(df_base[rougher_features])[
                      0])  # Recuperación Rougher estándar
 base_final = float(model_final.predict(df_base[final_features])[
                    0])  # Recuperación Final estándar
+
+# Obtiene la ley de Oro inicial para mostrar en KPI
+feed_au_actual = fila_simulacion.get("rougher.input.feed_au", 8.5)
 
 # --- PANEL PRINCIPAL (UNA SOLA PANTALLA) ---
 # Encabezado ejecutivo nativo
@@ -157,7 +124,7 @@ m3.metric(  # Muestra el error sMAPE ponderado real validado en el conjunto de p
 )
 m4.metric(  # Muestra el salto de concentración de Oro desde materia prima hasta concentrado final
     "📈 Enriquecimiento Au",
-    f"{feed_au:.1f}% → ~45.0%",
+    f"{feed_au_actual:.1f}% → ~45.0%",
     "Feed a Concentrado Final",
 )
 
