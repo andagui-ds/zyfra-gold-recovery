@@ -1,9 +1,9 @@
 import joblib  # Carga el diccionario con los dos modelos Random Forest y las estadísticas de sensores
 # Construye los DataFrames de entrada respetando el orden exacto de las columnas
 import pandas as pd
-# Permite dibujar la curva de sensibilidad y el marcador del punto actual
+# Dibuja las barras comparativas dinámicas de recuperación por etapa
 import plotly.graph_objects as go
-# Genera la gráfica de barras comparativa de los modelos evaluados
+# Genera la gráfica de importancia de variables reales del modelo
 import plotly.express as px
 # Construye toda la interfaz web nativa sin necesidad de escribir CSS
 import streamlit as st
@@ -41,12 +41,11 @@ minimos = artefacto["minimos"]
 # Percentil 95% de cada variable para fijar límites realistas
 maximos = artefacto["maximos"]
 
-# --- BARRA LATERAL: VARIABLES CLAVE DE FLOTACIÓN Y PURIFICACIÓN ---
+# --- BARRA LATERAL: CONTROLES OPERATIVOS DE PLANTA ---
 with st.sidebar:  # Agrupa los controles operativos del ingeniero de planta en el panel izquierdo
     # Título de los controles de simulación
     st.header("⚙️ Control Operativo de Planta")
 
-    # Variables críticas que impactan tanto la etapa Rougher como la etapa Final
     # Ley de Oro (%) en la alimentación inicial
     col_au = "rougher.input.feed_au"
     # Flujo de carga mineral (ton/h) hacia flotación
@@ -81,7 +80,7 @@ with st.sidebar:  # Agrupa los controles operativos del ingeniero de planta en e
         float(medianas[col_xanthate]),
         step=0.1,
     )
-    p_au = st.slider(  # Control deslizante para la ley de Oro entrando a limpieza primaria (impacta Final)
+    p_au = st.slider(  # Control deslizante para la ley de Oro entrando a limpieza primaria
         "Oro en Limpieza Primaria (primary_au %)",
         float(minimos[col_p_au]),
         float(maximos[col_p_au]),
@@ -104,7 +103,7 @@ with st.sidebar:  # Agrupa los controles operativos del ingeniero de planta en e
     )
 
 # --- INFERENCIA EN TIEMPO REAL ---
-# Toma la operación mediana estable de los 52 sensores como punto de partida
+# Toma la operación mediana estable de los 52 sensores como base
 fila_simulacion = medianas.copy()
 fila_simulacion[col_au] = feed_au  # Asigna el valor del slider de Oro inicial
 # Asigna el valor del slider de flujo de alimentación
@@ -132,8 +131,8 @@ base_final = float(model_final.predict(df_base[final_features])[
                    0])  # Recuperación Final estándar
 
 # --- PANEL PRINCIPAL (UNA SOLA PANTALLA) ---
-# Encabezado principal de la app
-st.title("⛏️ Zyfra — Simulador de Recuperación de Oro en Planta")
+# Encabezado ejecutivo nativo
+st.header("⛏️ Zyfra — Simulador de Recuperación de Oro en Planta")
 st.caption(  # Subtítulo técnico con la arquitectura del modelo y enlace al reporte de Quarto
     "Inferencia en dos etapas con **Random Forest** (sin Data Leakage) | "
     "Reporte en Quarto: andagui-ds.github.io/zyfra-gold-recovery"
@@ -165,91 +164,70 @@ m4.metric(  # Muestra el salto de concentración de Oro desde materia prima hast
 st.divider()  # Línea divisoria nativa entre los indicadores y las gráficas
 
 # Divide la mitad inferior en dos paneles de visualización
-col_izq, col_der = st.columns([1.2, 1])
+col_izq, col_der = st.columns([1.15, 1])
 
-with col_izq:  # Panel izquierdo con curva de sensibilidad interactiva y punto operativo en vivo
-    variables_sensibilidad = {  # Diccionario para elegir qué variable analizar en el eje X
-        "Oro en Limpieza Primaria (primary_au %)": col_p_au,
-        "Reactivo Sulfato (Primary Cleaner)": col_sulfate,
-        "Flujo de Carga (feed_rate)": col_rate,
-        "Reactivo Xantato (Rougher)": col_xanthate,
-        "Oro en Alimentación (feed_au %)": col_au,
-    }
-    var_label = st.selectbox(  # Selector nativo para cambiar la variable del eje X en la curva
-        "📈 Curva de Sensibilidad en Vivo — Selecciona variable a barrer:",
-        list(variables_sensibilidad.keys()),
-    )
-    # Obtiene el nombre técnico de la columna seleccionada
-    var_col = variables_sensibilidad[var_label]
-
-    rango_vals = [  # Genera 15 pasos equidistantes entre el mínimo y máximo real de esa variable
-        round(minimos[var_col] + i *
-              (maximos[var_col] - minimos[var_col]) / 14, 2)
-        for i in range(15)
-    ]
-    sim_rows = []  # Acumula los 15 escenarios para predecir toda la curva de una sola vez
-    for val in rango_vals:
-        row_tmp = fila_simulacion.copy()  # Mantiene fijos los demás sliders del operador
-        # Varía únicamente el parámetro seleccionado en el eje X
-        row_tmp[var_col] = val
-        sim_rows.append(row_tmp)
-    # Convierte los 15 escenarios en un DataFrame
-    df_sim = pd.DataFrame(sim_rows)
-
-    # Predice la curva completa de Recuperación Final
-    y_curve_final = model_final.predict(df_sim[final_features])
-    # Predice la curva de Recuperación Rougher
-    y_curve_rougher = model_rougher.predict(df_sim[rougher_features])
-
-    fig = go.Figure()  # Inicializa una figura interactiva de Plotly
-    fig.add_trace(go.Scatter(  # Dibuja la línea de Recuperación Rougher
-        x=rango_vals, y=y_curve_rougher, mode="lines+markers", name="Recuperación Rougher (%)"
+# Panel izquierdo: Comparativa dinámica en vivo (Simulación Actual vs. Operación Base)
+with col_izq:
+    # Título de la gráfica dinámica
+    st.subheader("📊 Eficiencia de Recuperación: Simulación Actual vs. Base")
+    fig = go.Figure()  # Inicializa gráfica de barras agrupadas interactiva
+    fig.add_trace(go.Bar(  # Barras de referencia estándar de la planta (mediana histórica)
+        x=["1. Flotación Primaria (Rougher)",
+           "2. Concentrado Purificado (Final)"],
+        y=[base_rougher, base_final],
+        name="Operación Base (Mediana)",
+        text=[f"{base_rougher:.2f}%", f"{base_final:.2f}%"],
+        textposition="outside",
+        marker_color="#64748B",
     ))
-    fig.add_trace(go.Scatter(  # Dibuja la línea de Recuperación Final
-        x=rango_vals, y=y_curve_final, mode="lines+markers", name="Recuperación Final (%)"
-    ))
-    fig.add_trace(go.Scatter(  # Coloca un punto destacado con tu configuración actual del slider
-        x=[fila_simulacion[var_col], fila_simulacion[var_col]],
+    fig.add_trace(go.Bar(  # Barras en vivo que cambian con los sliders del operador
+        x=["1. Flotación Primaria (Rougher)",
+           "2. Concentrado Purificado (Final)"],
         y=[pred_rougher, pred_final],
-        mode="markers",
-        marker=dict(size=12, color="red", symbol="diamond"),
-        name="Punto Operativo Actual",
+        name="Simulación Actual (Sliders)",
+        text=[f"{pred_rougher:.2f}%", f"{pred_final:.2f}%"],
+        textposition="outside",
+        marker_color="#0EA5E9",
     ))
-    fig.update_layout(  # Ajusta altura y márgenes para que no exista scroll vertical
-        xaxis_title=var_label,
-        yaxis_title="Recuperación Predicha (%)",
-        height=275,
-        margin=dict(l=10, r=10, t=10, b=10),
+    fig.update_layout(  # Configura barras agrupadas y escala fija de 0 a 105% para máxima claridad
+        barmode="group",
+        yaxis_title="Recuperación de Oro (%)",
+        yaxis_range=[0, 105],
+        height=305,
+        margin=dict(l=10, r=10, t=15, b=10),
         legend=dict(orientation="h", yanchor="bottom",
                     y=1.02, xanchor="right", x=1),
     )
     # Renderiza la gráfica responsiva
     st.plotly_chart(fig, use_container_width=True)
 
-with col_der:  # Panel derecho con el contraste de modelos evaluados en el proyecto
-    # Título de la comparativa de algoritmos
-    st.subheader("🏅 Benchmarking de Modelos (5-Fold CV)")
-    st.caption(
-        "Comparativa histórica de validación cruzada que justifica el modelo en producción:")
-    df_bench = pd.DataFrame({  # Resultados exactos de validación cruzada obtenidos en el notebook
-        "Modelo": ["Random Forest 🏆", "Decision Tree", "Linear Regression"],
-        "sMAPE Ponderado (%)": [9.16, 9.80, 10.91],
-    })
-    fig2 = px.bar(  # Dibuja barras horizontales ordenadas por menor error sMAPE
-        df_bench.sort_values("sMAPE Ponderado (%)", ascending=False),
-        x="sMAPE Ponderado (%)",
-        y="Modelo",
-        orientation="h",
-        text="sMAPE Ponderado (%)",
-        color="sMAPE Ponderado (%)",
-        color_continuous_scale="Teal_r",
+with col_der:  # Panel derecho: Variables reales más influyentes extraídas del modelo Random Forest
+    # Título de importancia de sensores
+    st.subheader("🔍 Top Variables Más Influyentes (Random Forest)")
+    df_imp = (  # Extrae las 6 variables con mayor peso real del modelo final entrenado
+        pd.DataFrame({
+            "Sensor": final_features,
+            "Importancia (%)": model_final.feature_importances_ * 100,
+        })
+        .sort_values("Importancia (%)", ascending=True)
+        .tail(6)
     )
-    # Etiqueta cada barra con su %
-    fig2.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
-    fig2.update_layout(  # Mantiene la misma altura compacta de una sola pantalla
-        height=275,
-        margin=dict(l=10, r=45, t=10, b=10),
+    fig2 = px.bar(  # Dibuja barras horizontales con los sensores que realmente gobiernan el modelo
+        df_imp,
+        x="Importancia (%)",
+        y="Sensor",
+        orientation="h",
+        text="Importancia (%)",
+        color="Importancia (%)",
+        color_continuous_scale="Teal",
+    )
+    # Etiqueta el % de peso
+    fig2.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
+    fig2.update_layout(  # Ajusta márgenes y rango para evitar recortes de etiquetas
+        xaxis_range=[0, df_imp["Importancia (%)"].max() * 1.22],
+        height=305,
+        margin=dict(l=10, r=20, t=15, b=10),
         coloraxis_showscale=False,
     )
-    # Renderiza el gráfico comparativo
+    # Renderiza el gráfico de importancia
     st.plotly_chart(fig2, use_container_width=True)
